@@ -1,0 +1,15 @@
+{
+  "name": "aws-api",
+  "version": "1.0.0",
+  "description": "AWS GraphQL API example for ZLIT event",
+  "main": "src/index.js",
+  "author": "Rastopyr <rastopyr@gmail.com>",
+  "license": "MIT",
+  "private": false,
+  "dependencies": {
+    "aws-sdk": "^2.444.0",
+    "glob": "^7.1.3",
+    "graphql-yoga": "^1.17.4",
+    "nexus": "^0.11.7"
+  }
+}
