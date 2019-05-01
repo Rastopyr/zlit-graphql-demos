@@ -240,14 +240,10 @@ const readApis = (apiNames) => {
       scalarType({
         name: "JSON",
         asNexusMethod: "json",
-        parseValue(value) {
-          return JSON.parse(value);
-        },
-
-        serialize(value) {
-          return JSON.parse(value);
-        },
-
+        parseValue: (value) =>
+          typeof value === "string" ? JSON.stringify(value) : value,
+        serialize: (value) =>
+          typeof value === "string" ? JSON.stringify(value) : value,
         parseLiteral() {
           return null;
         }
