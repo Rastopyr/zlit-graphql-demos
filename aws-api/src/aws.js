@@ -1,66 +1,57 @@
-const glob = require('glob');
-const {
-  GraphQLServer
-} = require('graphql-yoga');
+const glob = require("glob");
+const { GraphQLServer } = require("graphql-yoga");
 const {
   inputObjectType,
   objectType,
   queryField,
   extendType,
+  scalarType,
   arg,
 
   makeSchema
-} = require('nexus');
-const AWS = require('aws-sdk');
+} = require("nexus");
+const AWS = require("aws-sdk");
+
+AWS.config.update({
+  region: "us-east-1"
+});
 
 const typeMatching = {
-  'blob': 'string',
-  'long': 'int',
-  'string': 'string',
-  'integer': 'int',
-  'timestamp': 'int',
-  'boolean': 'boolean',
-  [undefined]: 'string'
+  blob: "string",
+  double: "int",
+  long: "int",
+  map: "json",
+  float: "int",
+  string: "string",
+  integer: "int",
+  timestamp: "string",
+  boolean: "boolean",
+  [undefined]: "JSON"
 };
-
-const extractShape = () => {};
 
 function removeDuplicates(myArr, prop) {
   return myArr.filter((obj, pos, arr) => {
-    return arr.map(mapObj => mapObj[prop]).indexOf(obj[prop]) === pos;
+    return arr.map((mapObj) => mapObj[prop]).indexOf(obj[prop]) === pos;
   });
 }
 
-const extractType = ({
-  parentName,
-  type,
-  shapes,
-  isInput = false
-}) => {
-  if (!type) {
-    return [];
-  }
+const extractType = ({ parentName, type, shapes, isInput = false }) => {
+  if (!type) return [];
 
-  const name = `${parentName}${isInput ? 'InputType' : ''}`;
+  const name = `${parentName}${isInput ? "InputType" : ""}`;
   const nestedTypes = [];
 
-  const {
-    required,
-    shape,
-    members = [],
-  } = type;
+  const { required, shape, members = [] } = type;
 
   const typeBuilder = isInput ? inputObjectType : objectType;
 
-
   if (shape) {
-    const shapedType = shapes[shape];
-
     return [
       ...extractType({
         parentName,
-        type: shapedType,
+        type: shapes[shape],
         shapes,
+        isInput
       }),
       ...nestedTypes
     ];
@@ -70,12 +61,13 @@ const extractType = ({
     if (members.hasOwnProperty(memberName)) {
       const field = members[memberName];
 
-      if (field.type === 'structure' || field.type === 'list') {
+      if (field.type === "structure" || field.type === "list" || field.shape) {
         nestedTypes.push(
           ...extractType({
-            parentName: memberName,
-            type: field.type === 'list' ? field.member : field,
+            parentName: `${memberName}`,
+            type: field.type === "list" ? field.member : field,
             shapes,
+            isInput
           })
         );
       }
@@ -84,77 +76,64 @@ const extractType = ({
 
   const computedType = typeBuilder({
     name,
+    nullable: true,
     definition(t) {
       let fieldCount = 0;
 
       for (const memberName in members) {
         if (members.hasOwnProperty(memberName)) {
           const field = members[memberName];
-          const {
-            type = 'string'
-          } = field;
-          const isRequired = required && required.includes(memberName);
+          const isRequired = !!required && required.includes(memberName);
+          let type = field.shape ? memberName : field.type || "string";
+
+          let config;
 
           if (t[typeMatching[type]]) {
-            t[typeMatching[type]](memberName, {
+            config = {
               required: isRequired
-            });
+            };
           } else {
-            t.field(memberName, {
-              type: memberName,
+            config = {
+              type: `${memberName}${isInput ? "InputType" : ""}`,
               required: isRequired,
-              list: type === 'list'
-            });
+              list: type === "list"
+            };
           }
+
+          t[typeMatching[type] || "field"](
+            memberName,
+            Object.assign(config, !isInput ? { nullable: !isRequired } : {})
+          );
 
           fieldCount++;
         }
       }
 
-      if (!fieldCount) {
-        t.string('ok', {
-          resolve: () => 'ok'
-        });
-      }
-    },
+      if (!fieldCount) t.string("ok", () => "ok");
+    }
   });
 
-  return [
-    computedType,
-    ...nestedTypes
-  ]
-}
+  return [computedType, ...nestedTypes];
+};
 
-const extractApi = ({
-  operations,
-  shapes,
-}) => {
+const extractApi = ({ metadata, operations, shapes }) => {
   const payload = {
     types: [],
-    queries: []
+    fields: [],
+    endpoints: []
   };
 
   for (const operationName in operations) {
     const operation = operations[operationName];
 
-    // console.log(operationName, operation.http.method);
-
-    if (operation.http) {
-      const {
-        method
-      } = operation.http;
-
-      if (method === 'GET') {
-        payload.types.push(
-          ...extractType({
-            parentName: operationName,
-            type: operation.input,
-            shapes,
-            isInput: true,
-          })
-        );
-      }
-    }
+    payload.types.push(
+      ...extractType({
+        parentName: operationName,
+        type: operation.input,
+        shapes,
+        isInput: true
+      })
+    );
 
     if (operation.output) {
       payload.types.push(
@@ -169,44 +148,53 @@ const extractApi = ({
         objectType({
           name: operationName,
           definition(t) {
-            t.string('ok', () => ({}))
+            t.string("ok", () => ({}));
           }
         })
       );
     }
 
-    const args = {};
+    payload.endpoints.push({
+      name: operationName,
+      nullable: true,
+      config: {
+        args: operation.input
+          ? {
+              data: arg({
+                type: `${operationName}InputType`
+              })
+            }
+          : {},
+        type: operationName,
+        resolve: async (parent, args) => {
+          const serviceInstance = new AWS[metadata.serviceId]();
+          const functionName = `${operationName[0].toLowerCase()}${operationName.slice(
+            1
+          )}`;
 
-
-    if (operation.input && operation.input.members) {
-      for (const memberName in operation.input.members) {
-        const member = operation.input.members[memberName];
-
-        if (typeMatching[member.type]) {
-          args[memberName] = arg({
-            type: "String",
-            required: false
-          });
-        } else {
-          console.log(operationName, memberName, member.type)
-          // args[memberName] = arg({
-          //   type: `${memberName}InputType`,
-          //   required: false
-          // });
+          return await serviceInstance[functionName](args).promise();
         }
       }
-    }
-
-    payload.queries.push(
-      queryField(operationName, {
-        args: args,
-        type: operationName,
-        resolve: () => ({})
-      })
-    );
+    });
   }
 
-  // console.log(payload);
+  payload.types.push(
+    objectType({
+      name: metadata.endpointPrefix,
+      nullable: true,
+      definition(t) {
+        for (const endpoint of payload.endpoints) {
+          t.field(endpoint.name, endpoint.config);
+        }
+      }
+    })
+  );
+
+  payload.api = queryField(metadata.endpointPrefix, {
+    type: metadata.endpointPrefix,
+    nullable: true,
+    resolve: () => ({})
+  });
 
   return payload;
 };
@@ -216,47 +204,26 @@ const readApis = (apiNames) => {
 
   const dataApis = {
     types: [],
-    queries: [],
-    mutations: []
+    apis: []
   };
 
   for (const apiFile of apis) {
     const api = require(apiFile.replace("node_modules/", ""));
-    const {
-      metadata,
-      operations,
-      shapes,
-      version
-    } = api;
-
+    const { metadata, operations, shapes, version } = api;
 
     if (
       !apiNames.includes(metadata.endpointPrefix) ||
       (dataApis[metadata.endpointPrefix] &&
         metadata.apiVersion <
-        dataApis[metadata.endpointPrefix].metadata.apiVersion)
+          dataApis[metadata.endpointPrefix].metadata.apiVersion)
     ) {
       continue;
     }
 
+    const { types, api: extractedApi } = extractApi(api);
 
-    const {
-      types,
-      queries,
-      // mutations
-    } = extractApi(api);
-
-    console.log(queries[0].config);
-
-    dataApis.types = [
-      ...dataApis.types,
-      ...types
-    ];
-
-    dataApis.queries = [
-      ...dataApis.queries,
-      ...queries
-    ];
+    dataApis.types = [...dataApis.types, ...types];
+    dataApis.apis = [...dataApis.apis, extractedApi];
   }
 
   return makeSchema({
@@ -264,31 +231,39 @@ const readApis = (apiNames) => {
       extendType({
         type: "Query",
         definition(t) {
-          t.string('sdkVersion', {
+          t.string("sdkVersion", {
             nullable: true,
             resolve: () => AWS.VERSION
-          })
-          // for (const query of dataApis.queries) {
-          //   t.field(query);
-
-          //   console.log(query);
-          // }
+          });
         }
       }),
-      ...dataApis.queries,
-      ...(removeDuplicates(dataApis.types, 'name'))
+      scalarType({
+        name: "JSON",
+        asNexusMethod: "json",
+        parseValue(value) {
+          return JSON.parse(value);
+        },
+
+        serialize(value) {
+          return JSON.parse(value);
+        },
+
+        parseLiteral() {
+          return null;
+        }
+      }),
+      ...dataApis.apis,
+      ...removeDuplicates(dataApis.types, "name")
     ],
 
-    outputs: false,
+    outputs: false
   });
-}
+};
 
-const schema = readApis([
-  's3'
-]);
+const schema = readApis(["ec2", "s3", "textract", "iam"]);
 
 const server = new GraphQLServer({
   schema
 });
 
-server.start(() => console.log('server listen'));
+server.start(() => console.log("server listen"));
