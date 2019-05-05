@@ -1,0 +1,13 @@
+{
+  "name": "webhooks",
+  "version": "1.0.0",
+  "description": "Demo for webhooks processing in GraphQL server",
+  "main": "src/index.js",
+  "repository": "https://github.com/Rastopyr/zlit-graphql-demos.git",
+  "author": "Rastopyr <rastopyr@gmail.com>",
+  "license": "MIT",
+  "dependencies": {
+    "body-parser": "^1.19.0",
+    "graphql-yoga": "^1.17.4"
+  }
+}
