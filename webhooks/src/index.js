@@ -94,4 +94,4 @@ const handleWebhook = (hookFn) => (req, res, next) => {
 server.express.use(bodyParser.json());
 server.express.use(handleWebhook(githubWebhook));
 
-server.start({ port: 4566 }, () => console.log("listen at: localhost:4566"));
+server.start({ port: 4001 }, () => console.log("listen at: localhost:4001"));
