@@ -259,6 +259,7 @@ const readApis = (apiNames) => {
 const schema = readApis(["ec2", "s3", "textract", "iam"]);
 
 const server = new GraphQLServer({
+  port: 4000,
   schema
 });
 

@@ -2,7 +2,7 @@
   "name": "aws-api",
   "version": "1.0.0",
   "description": "AWS GraphQL API example for ZLIT event",
-  "main": "src/index.js",
+  "main": "src/aws.js",
   "author": "Rastopyr <rastopyr@gmail.com>",
   "license": "MIT",
   "private": false,
