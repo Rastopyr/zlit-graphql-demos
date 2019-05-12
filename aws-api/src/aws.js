@@ -109,7 +109,7 @@ const extractType = ({ parentName, type, shapes, isInput = false }) => {
         }
       }
 
-      if (!fieldCount) t.string("ok", () => "ok");
+      if (!fieldCount) t.json("data", (parent) => parent);
     }
   });
 
@@ -166,7 +166,7 @@ const extractApi = ({ metadata, operations, shapes }) => {
             }
           : {},
         type: operationName,
-        resolve: async (parent, args) => {
+        resolve: async (parent, { data: args }) => {
           const serviceInstance = new AWS[metadata.serviceId]();
           const functionName = `${operationName[0].toLowerCase()}${operationName.slice(
             1
